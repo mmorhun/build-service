@@ -36,11 +36,10 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	routev1 "github.com/openshift/api/route/v1"
 	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
 	appservicecontrollers "github.com/redhat-appstudio/application-service/controllers"
+	"github.com/redhat-appstudio/application-service/gitops/ioutils"
 	"github.com/redhat-appstudio/application-service/gitops/testutils"
-	"github.com/redhat-appstudio/build-service/pkg/gitops/ioutils"
 	taskrunapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	triggersapi "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 
@@ -97,9 +96,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = taskrunapi.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = routev1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

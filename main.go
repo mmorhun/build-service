@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	routev1 "github.com/openshift/api/route/v1"
 	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
 	"github.com/redhat-appstudio/build-service/controllers"
 	taskrunapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
@@ -88,11 +87,6 @@ func main() {
 
 	if err := taskrunapi.AddToScheme(mgr.GetScheme()); err != nil {
 		setupLog.Error(err, "unable to add triggers api to the scheme")
-		os.Exit(1)
-	}
-
-	if err := routev1.AddToScheme(mgr.GetScheme()); err != nil {
-		setupLog.Error(err, "unable to add route api to the scheme")
 		os.Exit(1)
 	}
 

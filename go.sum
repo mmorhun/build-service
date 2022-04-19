@@ -212,7 +212,6 @@ github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239 h1:kFOfPq6dUM1hTo
 github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYUyUczH0OGQWaF5ceTx0UBShxjsH6f8oGKYe2c=
 github.com/antihax/optional v0.0.0-20180407024304-ca021399b1a6/go.mod h1:V8iCPQYkqmusNa815XgQio277wI47sdRh1dUOLdyC6Q=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
-github.com/antlr/antlr4 v0.0.0-20200503195918-621b933c7a7f/go.mod h1:T7PbCXFs94rrTttyxjbyT5+/1V8T2TYDejxUfHJjw1Y=
 github.com/antlr/antlr4 v0.0.0-20211106181442-e4c1a74c66bd h1:ybciyoiobKUM6dBiyCcNkx/BYPC5kjCutqDrLKC0eyw=
 github.com/antlr/antlr4 v0.0.0-20211106181442-e4c1a74c66bd/go.mod h1:T7PbCXFs94rrTttyxjbyT5+/1V8T2TYDejxUfHJjw1Y=
 github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210826220005-b48c857c3a0e h1:GCzyKMDDjSGnlpl3clrdAK7I1AaVoaiKDOYkUzChZzg=
@@ -1437,7 +1436,6 @@ github.com/rcrowley/go-metrics v0.0.0-20190706150252-9beb055b7962/go.mod h1:bCqn
 github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
 github.com/redhat-appstudio/application-service v0.0.0-20220316030335-c7f42f12f29f h1:5G29iUp3ru6l1Pn/D1ptVMfs2D9Cl6nVlPCcORe4OZM=
 github.com/redhat-appstudio/application-service v0.0.0-20220316030335-c7f42f12f29f/go.mod h1:pEw4LvhNEDP9GIFSt5Kb47rrP7ZmT4n6XpB8Z5DCKRM=
-github.com/redhat-appstudio/build-service v0.0.0-20220330075120-4d8c279d5f71/go.mod h1:v+Y9BpkTX8GRLy31UaFs/1wEiQOiCOlHaP9e2cvIrBM=
 github.com/redhat-appstudio/service-provider-integration-operator v0.2.3 h1:Yo8SteSvHw5Og4VA9dHVuPeVX0+BkTFH8Rou8o0PAUc=
 github.com/redhat-appstudio/service-provider-integration-operator v0.2.3/go.mod h1:Ps5dMLwMKz4vGFcyNVDUI36KuWLz+yNGMBjZL2MQLPg=
 github.com/redhat-appstudio/service-provider-integration-scm-file-retriever v0.2.5 h1:e/C6IFE5OEvSGI4aDmarC0F64WPaqNn/eXOnTk6DiWk=

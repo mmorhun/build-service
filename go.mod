@@ -3,23 +3,17 @@ module github.com/redhat-appstudio/build-service
 go 1.17
 
 require (
-	github.com/devfile/api/v2 v2.0.0-20211021164004-dabee4e633ed
-	github.com/devfile/library v1.2.1-0.20211104222135-49d635cb492f
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-cmp v0.5.7
-	github.com/mitchellh/go-homedir v1.1.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
-	github.com/openshift/api v3.9.0+incompatible
 	github.com/redhat-appstudio/application-service v0.0.0-20220316030335-c7f42f12f29f
-	github.com/spf13/afero v1.8.0
 	github.com/tektoncd/pipeline v0.33.0
 	github.com/tektoncd/triggers v0.19.1
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5
 	k8s.io/client-go v0.23.0
 	sigs.k8s.io/controller-runtime v0.11.0
-	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -45,6 +39,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/containerd/containerd v1.5.9 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/devfile/api/v2 v2.0.0-20211021164004-dabee4e633ed // indirect
+	github.com/devfile/library v1.2.1-0.20211104222135-49d635cb492f // indirect
 	github.com/devfile/registry-support/index/generator v0.0.0-20220222194908-7a90a4214f3e // indirect
 	github.com/devfile/registry-support/registry-library v0.0.0-20220222194908-7a90a4214f3e // indirect
 	github.com/emicklei/go-restful v2.15.0+incompatible // indirect
@@ -95,6 +91,7 @@ require (
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/migueleliasweb/go-github-mock v0.0.5 // indirect
+	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.1 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -102,6 +99,7 @@ require (
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.3-0.20220114050600-8b9d41f48198 // indirect
+	github.com/openshift/api v3.9.0+incompatible // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -115,6 +113,7 @@ require (
 	github.com/redhat-developer/alizer/go v0.0.0-20220215154256-33df7feef4ae // indirect
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
+	github.com/spf13/afero v1.8.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/stretchr/objx v0.2.0 // indirect
@@ -158,4 +157,7 @@ require (
 	oras.land/oras-go v0.4.0 // indirect
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
+	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+replace github.com/antlr/antlr4 => github.com/antlr/antlr4 v0.0.0-20211106181442-e4c1a74c66bd

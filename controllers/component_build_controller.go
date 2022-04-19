@@ -21,10 +21,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	routev1 "github.com/openshift/api/route/v1"
 	tektonapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	triggersapi "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +41,7 @@ import (
 
 	"github.com/go-logr/logr"
 	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
-	"github.com/redhat-appstudio/build-service/pkg/gitops"
+	"github.com/redhat-appstudio/application-service/gitops"
 )
 
 // ComponentBuildReconciler watches AppStudio Component object in order to submit builds
@@ -100,7 +100,27 @@ func (r *ComponentBuildReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	shouldBuild, err := r.IsNewBuildRequired(ctx, component)
+	// Ensure build resources are present
+	expectedTriggerTemplate, err := gitops.GenerateTriggerTemplate(component)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	existingTriggerTemplate := &triggersapi.TriggerTemplate{}
+	existingTriggerTemplateNamespacedName := types.NamespacedName{
+		Name:      expectedTriggerTemplate.Name,
+		Namespace: expectedTriggerTemplate.Namespace,
+	}
+	if err := r.Client.Get(ctx, existingTriggerTemplateNamespacedName, existingTriggerTemplate); err != nil {
+		if errors.IsNotFound(err) {
+			// Build resources haven't been created yet.
+			// Wait until Argo CD sync build resources from gitops repository.
+			log.Info("Waiting for build resources to be synced by Argo CD.")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	shouldBuild, err := r.IsNewBuildRequired(ctx, component, existingTriggerTemplate, expectedTriggerTemplate)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -128,28 +148,8 @@ var triggerResourceTemplateDiffOpts = cmp.Options{
 
 // IsNewBuildRequired detects if a new image should be built for given component.
 // The criterion is equality of existing and expected trigger template of the component.
-func (r *ComponentBuildReconciler) IsNewBuildRequired(ctx context.Context, component appstudiov1alpha1.Component) (bool, error) {
+func (r *ComponentBuildReconciler) IsNewBuildRequired(ctx context.Context, component appstudiov1alpha1.Component, existingTriggerTemplate, expectedTriggerTemplate *triggersapi.TriggerTemplate) (bool, error) {
 	log := r.Log.WithValues("Namespace", component.Namespace, "Application", component.Spec.Application, "Component", component.Name)
-
-	expectedTriggerTemplate, err := gitops.GenerateTriggerTemplate(component)
-	if err != nil {
-		return false, err
-	}
-
-	// Get existing build trigger template, if any
-	existingTriggerTemplate := &triggersapi.TriggerTemplate{}
-	existingTriggerTemplateNamespacedName := types.NamespacedName{
-		Name:      expectedTriggerTemplate.Name,
-		Namespace: expectedTriggerTemplate.Namespace,
-	}
-	if err := r.Client.Get(ctx, existingTriggerTemplateNamespacedName, existingTriggerTemplate); err != nil {
-		if errors.IsNotFound(err) {
-			// Build has never been done or cleaned up. Rebuild.
-			log.Info("Previous trigger template not found, rebuild.")
-			return true, nil
-		}
-		return false, err
-	}
 
 	// Compare expectedTriggerTemplate and existingTriggerTemplate.
 	// The difficulty here is that we cannot just compare these objects using DeepEqual or similar,
@@ -194,30 +194,11 @@ func (r *ComponentBuildReconciler) SubmitNewBuild(ctx context.Context, component
 	log := r.Log.WithValues("Namespace", component.Namespace, "Application", component.Spec.Application, "Component", component.Name)
 	log.Info("New build submitted")
 
-	// TODO delete creation of gitops build objects(except PipelineRun) when build part of gitops repository will be respected
-
-	workspaceStorage := gitops.GenerateCommonStorage(component, "appstudio")
-	pvc := &corev1.PersistentVolumeClaim{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: workspaceStorage.Name, Namespace: workspaceStorage.Namespace}, pvc)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			err = r.Client.Create(ctx, &workspaceStorage)
-			if err != nil {
-				log.Error(err, fmt.Sprintf("Unable to create common storage %v", workspaceStorage))
-				return err
-			}
-			log.Info(fmt.Sprintf("PV is now present : %v", workspaceStorage.Name))
-		} else {
-			log.Error(err, fmt.Sprintf("Unable to get common storage %v", workspaceStorage))
-			return err
-		}
-	}
-
 	gitSecretName := component.Spec.Source.GitSource.Secret
 	// Make the Secret ready for consumption by Tekton.
 	if gitSecretName != "" {
 		gitSecret := corev1.Secret{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: gitSecretName, Namespace: component.Namespace}, &gitSecret)
+		err := r.Client.Get(ctx, types.NamespacedName{Name: gitSecretName, Namespace: component.Namespace}, &gitSecret)
 		if err != nil {
 			log.Error(err, fmt.Sprintf("Secret %s is missing", gitSecretName))
 			return err
@@ -228,18 +209,18 @@ func (r *ComponentBuildReconciler) SubmitNewBuild(ctx context.Context, component
 
 			gitHost, _ := getGitProvider(component.Spec.Source.GitSource.URL)
 
-			// doesn't matter if it was present, we will always override.
+			// Doesn't matter if it was present, we will always override.
 			gitSecret.Annotations["tekton.dev/git-0"] = gitHost
 			err = r.Client.Update(ctx, &gitSecret)
 			if err != nil {
-				log.Error(err, fmt.Sprintf("Secret %s  update failed", gitSecretName))
+				log.Error(err, fmt.Sprintf("Secret %s update failed", gitSecretName))
 				return err
 			}
 		}
 	}
 
 	pipelinesServiceAccount := corev1.ServiceAccount{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: "pipeline", Namespace: component.Namespace}, &pipelinesServiceAccount)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: "pipeline", Namespace: component.Namespace}, &pipelinesServiceAccount)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("OpenShift Pipelines-created Service account 'pipeline' is missing in namespace %s", component.Namespace))
 		return err
@@ -255,61 +236,6 @@ func (r *ComponentBuildReconciler) SubmitNewBuild(ctx context.Context, component
 		}
 	}
 
-	triggerTemplate, err := gitops.GenerateTriggerTemplate(component)
-	if err != nil {
-		log.Error(err, "Unable to generate triggerTemplate ")
-		return err
-	}
-	err = controllerutil.SetOwnerReference(&component, triggerTemplate, r.Scheme)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("Unable to set owner reference for %v", triggerTemplate))
-	}
-
-	existingTriggerTemplate := &triggersapi.TriggerTemplate{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: triggerTemplate.Name, Namespace: triggerTemplate.Namespace}, existingTriggerTemplate)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			err = r.Client.Create(ctx, triggerTemplate)
-			if err != nil {
-				log.Error(err, fmt.Sprintf("Unable to create triggerTemplate %v", triggerTemplate))
-				return err
-			}
-			log.Info(fmt.Sprintf("TriggerTemplate created %v", triggerTemplate.Name))
-		} else {
-			log.Error(err, fmt.Sprintf("Unable to get triggerTemplate %s", triggerTemplate.Name))
-			return err
-		}
-	} else {
-		existingTriggerTemplate.Spec = triggerTemplate.Spec
-		err = r.Client.Update(ctx, existingTriggerTemplate)
-		if err != nil {
-			log.Error(err, fmt.Sprintf("Unable to update triggerTemplate %v", existingTriggerTemplate))
-			return err
-		}
-		log.Info(fmt.Sprintf("TriggerTemplate updated %v", triggerTemplate.Name))
-	}
-
-	eventListener := gitops.GenerateEventListener(component, *triggerTemplate)
-	err = controllerutil.SetOwnerReference(&component, &eventListener, r.Scheme)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("Unable to set owner reference for %v", eventListener))
-		return err
-	}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: eventListener.Name, Namespace: eventListener.Namespace}, &triggersapi.EventListener{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			err = r.Client.Create(ctx, &eventListener)
-			if err != nil {
-				log.Error(err, fmt.Sprintf("Unable to create eventListener %v", eventListener))
-				return err
-			}
-		} else {
-			log.Error(err, fmt.Sprintf("Unable to get eventListener %v", eventListener))
-			return err
-		}
-	}
-	log.Info(fmt.Sprintf("Eventlistener created/updated %v", eventListener.Name))
-
 	initialBuild := gitops.GenerateInitialBuildPipelineRun(component)
 	err = controllerutil.SetOwnerReference(&component, &initialBuild, r.Scheme)
 	if err != nil {
@@ -322,26 +248,7 @@ func (r *ComponentBuildReconciler) SubmitNewBuild(ctx context.Context, component
 	}
 	log.Info(fmt.Sprintf("Pipeline created %v", initialBuild))
 
-	webhook := gitops.GenerateBuildWebhookRoute(component)
-	err = controllerutil.SetOwnerReference(&component, &webhook, r.Scheme)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("Unable to set owner reference for %v", webhook))
-	}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: webhook.Name, Namespace: webhook.Namespace}, &routev1.Route{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			err = r.Client.Create(ctx, &webhook)
-			if err != nil {
-				log.Error(err, fmt.Sprintf("Unable to create webhook %v", webhook.Name))
-				return err
-			}
-		} else {
-			log.Error(err, fmt.Sprintf("Unable to get webhook %v", webhook.Name))
-			return err
-		}
-	}
-
-	return err
+	return nil
 }
 
 // getGitProvider takes a Git URL of the format https://github.com/foo/bar and returns https://github.com
