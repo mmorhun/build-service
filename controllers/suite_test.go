@@ -28,23 +28,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	ctrl "sigs.k8s.io/controller-runtime"
-
-	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
-	appservicecontrollers "github.com/redhat-appstudio/application-service/controllers"
-	"github.com/redhat-appstudio/application-service/gitops/ioutils"
-	"github.com/redhat-appstudio/application-service/gitops/testutils"
 	taskrunapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	triggersapi "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 
-	"github.com/redhat-appstudio/application-service/pkg/github"
-	"github.com/redhat-appstudio/application-service/pkg/spi"
+	appstudiov1alpha1 "github.com/mmorhun/application-service/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -75,11 +68,9 @@ var _ = BeforeSuite(func() {
 	applicationServiceDepVersion := "v0.0.0-20220316030335-c7f42f12f29f"
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-service@"+applicationServiceDepVersion, "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "tektoncd", "triggers@v0.19.1", "config"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "tektoncd", "pipeline@v0.33.0", "config"),
-			filepath.Join("..", "hack", "routecrd"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -90,9 +81,6 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = appstudiov1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = triggersapi.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = taskrunapi.AddToScheme(scheme.Scheme)
@@ -121,31 +109,31 @@ var _ = BeforeSuite(func() {
 	err = (&ComponentBuildReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sManager.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Component"),
+		Log:    ctrl.Log.WithName("controllers").WithName("ComponentInitialBuild"),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// Add application service controllers to simulate the behaviour
 	// as build service is dependent on application service.
-	err = (&appservicecontrollers.ApplicationReconciler{
-		Client:       k8sManager.GetClient(),
-		Scheme:       k8sManager.GetScheme(),
-		Log:          ctrl.Log.WithName("controllers").WithName("Application"),
-		GitHubClient: github.GetMockedClient(),
-		GitHubOrg:    github.AppStudioAppDataOrg,
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
+	// err = (&appservicecontrollers.ApplicationReconciler{
+	// 	Client:       k8sManager.GetClient(),
+	// 	Scheme:       k8sManager.GetScheme(),
+	// 	Log:          ctrl.Log.WithName("controllers").WithName("Application"),
+	// 	GitHubClient: github.GetMockedClient(),
+	// 	GitHubOrg:    github.AppStudioAppDataOrg,
+	// }).SetupWithManager(k8sManager)
+	// Expect(err).ToNot(HaveOccurred())
 
-	err = (&appservicecontrollers.ComponentReconciler{
-		Client:          k8sManager.GetClient(),
-		Scheme:          k8sManager.GetScheme(),
-		Log:             ctrl.Log.WithName("controllers").WithName("Component"),
-		Executor:        testutils.NewMockExecutor(),
-		AppFS:           ioutils.NewMemoryFilesystem(),
-		ImageRepository: "docker.io/foo/customized",
-		SPIClient:       spi.MockSPIClient{},
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
+	// err = (&appservicecontrollers.ComponentReconciler{
+	// 	Client:          k8sManager.GetClient(),
+	// 	Scheme:          k8sManager.GetScheme(),
+	// 	Log:             ctrl.Log.WithName("controllers").WithName("Component"),
+	// 	Executor:        testutils.NewMockExecutor(),
+	// 	AppFS:           ioutils.NewMemoryFilesystem(),
+	// 	ImageRepository: "docker.io/foo/customized",
+	// 	SPIClient:       spi.MockSPIClient{},
+	// }).SetupWithManager(k8sManager)
+	// Expect(err).ToNot(HaveOccurred())
 
 	go func() {
 		defer GinkgoRecover()

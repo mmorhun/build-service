@@ -17,28 +17,30 @@ limitations under the License.
 package controllers
 
 import (
-	"context"
-	"encoding/json"
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
 	tektonapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	triggersapi "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	appstudiov1alpha1 "github.com/mmorhun/application-service/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
 const (
-	timeout  = time.Second * 10
-	duration = time.Second * 10
+	timeout  = time.Second * 15
 	interval = time.Millisecond * 250
+)
+
+const (
+	HASAppName      = "test-application"
+	HASCompName     = "test-component"
+	HASAppNamespace = "default"
+	SampleRepoLink  = "https://github.com/devfile-samples/devfile-sample-java-springboot-basic"
 )
 
 func isOwnedBy(resource []metav1.OwnerReference, component appstudiov1alpha1.Component) bool {
@@ -53,318 +55,141 @@ func isOwnedBy(resource []metav1.OwnerReference, component appstudiov1alpha1.Com
 	return false
 }
 
-// Simple function to create, retrieve from k8s, and return a simple Application CR
-func createAndFetchSimpleApp(name string, namespace string, display string, description string) *appstudiov1alpha1.Application {
-	hasApp := &appstudiov1alpha1.Application{
+// createComponent creates sample component resource and verifies it was properly created
+func createComponent(componentLookupKey types.NamespacedName) {
+	component := &appstudiov1alpha1.Component{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "appstudio.redhat.com/v1alpha1",
-			Kind:       "Application",
+			Kind:       "Component",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      componentLookupKey.Name,
+			Namespace: componentLookupKey.Namespace,
 		},
-		Spec: appstudiov1alpha1.ApplicationSpec{
-			DisplayName: display,
-			Description: description,
+		Spec: appstudiov1alpha1.ComponentSpec{
+			ComponentName: componentLookupKey.Name,
+			Application:   HASAppName,
+			Source: appstudiov1alpha1.ComponentSource{
+				ComponentSourceUnion: appstudiov1alpha1.ComponentSourceUnion{
+					GitSource: &appstudiov1alpha1.GitSource{
+						URL: SampleRepoLink,
+					},
+				},
+			},
 		},
 	}
+	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
 
-	Expect(k8sClient.Create(ctx, hasApp)).Should(Succeed())
+	getComponent(componentLookupKey)
+}
 
-	// Look up the has app resource that was created.
-	// num(conditions) may still be < 1 on the first try, so retry until at least _some_ condition is set
-	hasAppLookupKey := types.NamespacedName{Name: name, Namespace: namespace}
-	fetchedHasApp := &appstudiov1alpha1.Application{}
+func getComponent(componentLookupKey types.NamespacedName) *appstudiov1alpha1.Component {
+	component := &appstudiov1alpha1.Component{}
 	Eventually(func() bool {
-		k8sClient.Get(ctx, hasAppLookupKey, fetchedHasApp)
-		return len(fetchedHasApp.Status.Conditions) > 0
+		k8sClient.Get(ctx, componentLookupKey, component)
+		return component.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
-
-	return fetchedHasApp
+	return component
 }
 
-// deleteHASAppCR deletes the specified hasApp resource and verifies it was properly deleted
-func deleteHASAppCR(hasAppLookupKey types.NamespacedName) {
-	// Delete
+func setComponentDevfileModel(componentLookupKey types.NamespacedName) {
+	component := &appstudiov1alpha1.Component{}
 	Eventually(func() error {
-		f := &appstudiov1alpha1.Application{}
-		k8sClient.Get(ctx, hasAppLookupKey, f)
-		return k8sClient.Delete(ctx, f)
+		k8sClient.Get(ctx, componentLookupKey, component)
+		component.Status.Devfile = "version: 2.2.0"
+		return k8sClient.Status().Update(ctx, component)
 	}, timeout, interval).Should(Succeed())
-
-	// Wait for delete to finish
-	Eventually(func() error {
-		f := &appstudiov1alpha1.Application{}
-		return k8sClient.Get(ctx, hasAppLookupKey, f)
-	}, timeout, interval).ShouldNot(Succeed())
 }
 
-// deleteHASCompCR deletes the specified hasComp resource and verifies it was properly deleted
-func deleteHASCompCR(hasCompLookupKey types.NamespacedName) {
+// deleteComponent deletes the specified component resource and verifies it was properly deleted
+func deleteComponent(componentLookupKey types.NamespacedName) {
 	// Delete
 	Eventually(func() error {
 		f := &appstudiov1alpha1.Component{}
-		k8sClient.Get(ctx, hasCompLookupKey, f)
+		k8sClient.Get(ctx, componentLookupKey, f)
 		return k8sClient.Delete(ctx, f)
 	}, timeout, interval).Should(Succeed())
 
 	// Wait for delete to finish
 	Eventually(func() error {
 		f := &appstudiov1alpha1.Component{}
-		return k8sClient.Get(ctx, hasCompLookupKey, f)
+		return k8sClient.Get(ctx, componentLookupKey, f)
 	}, timeout, interval).ShouldNot(Succeed())
+}
+
+func listComponentPipelienRuns(componentLookupKey types.NamespacedName) *tektonapi.PipelineRunList {
+	pipelineRuns := &tektonapi.PipelineRunList{}
+	labelSelectors := client.ListOptions{Raw: &metav1.ListOptions{
+		LabelSelector: "build.appstudio.openshift.io/component=" + componentLookupKey.Name,
+	}}
+	err := k8sClient.List(ctx, pipelineRuns, &labelSelectors)
+	Expect(err).ToNot(HaveOccurred())
+	return pipelineRuns
+}
+
+func deleteComponentPipelienRuns(componentLookupKey types.NamespacedName) {
+	for _, pipelineRun := range listComponentPipelienRuns(componentLookupKey).Items {
+		Expect(k8sClient.Delete(ctx, &pipelineRun)).Should(Succeed())
+	}
+}
+
+func ensureNoPipelineRunsCreated(componentLookupKey types.NamespacedName) {
+	count := 0
+	Eventually(func() bool {
+		if count < 10 {
+			Expect(len(listComponentPipelienRuns(componentLookupKey).Items)).Should(Equal(0))
+			count++
+			return false
+		}
+		return true
+	}, timeout, interval).Should(BeTrue())
 }
 
 var _ = Describe("Component build controller", func() {
-	const (
-		HASAppName      = "test-application"
-		HASCompName     = "test-component"
-		HASAppNamespace = "default"
-		DisplayName     = "petclinic"
-		Description     = "Simple petclinic app"
-		ComponentName   = "backend"
-		SampleRepoLink  = "https://github.com/devfile-samples/devfile-sample-java-springboot-basic"
-	)
 
-	Context("Test build trigger", func() {
+	Context("Test initial build", func() {
 		var (
 			// All related to the component resources have the same key (but different type)
-			resourceKey    = types.NamespacedName{Name: HASCompName, Namespace: HASAppNamespace}
-			createdHasComp *appstudiov1alpha1.Component
+			resourceKey = types.NamespacedName{Name: HASCompName, Namespace: HASAppNamespace}
 		)
 
-		createSampleComponent := func() {
-			hasComp := &appstudiov1alpha1.Component{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "appstudio.redhat.com/v1alpha1",
-					Kind:       "Component",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      HASCompName,
-					Namespace: HASAppNamespace,
-				},
-				Spec: appstudiov1alpha1.ComponentSpec{
-					ComponentName: ComponentName,
-					Application:   HASAppName,
-					Source: appstudiov1alpha1.ComponentSource{
-						ComponentSourceUnion: appstudiov1alpha1.ComponentSourceUnion{
-							GitSource: &appstudiov1alpha1.GitSource{
-								URL: SampleRepoLink,
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, hasComp)).Should(Succeed())
-		}
-
-		listCreatedHasCompPipelienRuns := func() *tektonapi.PipelineRunList {
-			pipelineRuns := &tektonapi.PipelineRunList{}
-			labelSelectors := client.ListOptions{Raw: &metav1.ListOptions{
-				LabelSelector: "build.appstudio.openshift.io/component=" + createdHasComp.Name,
-			}}
-			err := k8sClient.List(ctx, pipelineRuns, &labelSelectors)
-			Expect(err).ToNot(HaveOccurred())
-			return pipelineRuns
-		}
-
 		_ = BeforeEach(func() {
-			createAndFetchSimpleApp(HASAppName, HASAppNamespace, DisplayName, Description)
-			createSampleComponent()
-
-			createdHasComp = &appstudiov1alpha1.Component{}
-			Eventually(func() bool {
-				k8sClient.Get(ctx, resourceKey, createdHasComp)
-				return createdHasComp.ResourceVersion != ""
-			}, timeout, interval).Should(BeTrue())
+			createComponent(resourceKey)
 		}, 30)
 
 		_ = AfterEach(func() {
-			deleteHASCompCR(resourceKey)
-			deleteHASAppCR(types.NamespacedName{Name: HASAppName, Namespace: HASAppNamespace})
+			deleteComponentPipelienRuns(resourceKey)
+			deleteComponent(resourceKey)
 		}, 30)
 
-		checkInitialBuildWasSubmitted := func() {
-			// Check that a new TriggerTemplate created
+		It("should submit initial build", func() {
+			setComponentDevfileModel(resourceKey)
+
+			component := getComponent(resourceKey)
 			Eventually(func() bool {
-				triggerTemplate := &triggersapi.TriggerTemplate{}
-				k8sClient.Get(ctx, resourceKey, triggerTemplate)
-				return triggerTemplate.ResourceVersion != "" && isOwnedBy(triggerTemplate.GetOwnerReferences(), *createdHasComp)
-			}, timeout, interval).Should(BeTrue())
-
-			// Check that build is submitted
-			Eventually(func() bool {
-				return len(listCreatedHasCompPipelienRuns().Items) > 0
-			}, timeout, interval).Should(BeTrue())
-		}
-
-		It("should submit a new build if no trigger template found", func() {
-			checkInitialBuildWasSubmitted()
-		})
-
-		It("should submit a new build if build parameter changed", func() {
-			checkInitialBuildWasSubmitted()
-
-			// Update build parameter in the TriggerTemplate
-			triggerTemplate := &triggersapi.TriggerTemplate{}
-			err := k8sClient.Get(ctx, resourceKey, triggerTemplate)
-			Expect(err).ToNot(HaveOccurred())
-
-			triggerTemplate.Spec.Params[0].Name = "new-param"
-
-			err = k8sClient.Update(ctx, triggerTemplate)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that a new build is submitted
-			Eventually(func() bool {
-				return len(listCreatedHasCompPipelienRuns().Items) > 1
+				pipelineRuns := listComponentPipelienRuns(resourceKey).Items
+				if len(pipelineRuns) != 1 {
+					return false
+				}
+				pipelineRun := pipelineRuns[0]
+				return isOwnedBy(pipelineRun.OwnerReferences, *component)
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("should submit a new build if build trigger resource template changed", func() {
-			checkInitialBuildWasSubmitted()
+		It("should not submit intial build if the component devfile model is not set", func() {
+			ensureNoPipelineRunsCreated(resourceKey)
+		})
 
-			// Update TriggerResourceTemplate in the TriggerTemplate
-			triggerTemplate := &triggersapi.TriggerTemplate{}
-			err := k8sClient.Get(ctx, resourceKey, triggerTemplate)
-			Expect(err).ToNot(HaveOccurred())
+		It("should not submit initial build if initial build annotation exists on the component", func() {
+			component := getComponent(resourceKey)
+			component.Annotations = make(map[string]string)
+			component.Annotations[InitialBuildAnnotationName] = "true"
+			Expect(k8sClient.Update(ctx, component)).Should(Succeed())
 
-			rawTriggerResourceTemplate := triggerTemplate.Spec.ResourceTemplates[0].Raw
-			var triggerResourceTemplate tektonapi.PipelineRun
-			err = json.Unmarshal(rawTriggerResourceTemplate, &triggerResourceTemplate)
-			Expect(err).ToNot(HaveOccurred())
+			setComponentDevfileModel(resourceKey)
 
-			triggerResourceTemplate.GenerateName = "test-"
-
-			rawTriggerResourceTemplate, err = json.Marshal(triggerResourceTemplate)
-			Expect(err).ToNot(HaveOccurred())
-			triggerTemplate.Spec.ResourceTemplates[0].Raw = rawTriggerResourceTemplate
-			err = k8sClient.Update(ctx, triggerTemplate)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that a new build is submitted
-			Eventually(func() bool {
-				return len(listCreatedHasCompPipelienRuns().Items) > 1
-			}, timeout, interval).Should(BeTrue())
+			ensureNoPipelineRunsCreated(resourceKey)
 		})
 	})
+
 })
-
-// Single functions tests
-
-func TestGetGitProvider(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		gitURL string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantErr    bool
-		wantString string
-	}{
-		{
-			name: "github",
-			args: args{
-				ctx:    context.Background(),
-				gitURL: "git@github.com:redhat-appstudio/application-service.git",
-			},
-			wantErr:    true, //unsupported
-			wantString: "",
-		},
-		{
-			name: "github https",
-			args: args{
-				ctx:    context.Background(),
-				gitURL: "https://github.com/redhat-appstudio/application-service.git",
-			},
-			wantErr:    false,
-			wantString: "https://github.com",
-		},
-		{
-			name: "bitbucket https",
-			args: args{
-				ctx:    context.Background(),
-				gitURL: "https://sbose78@bitbucket.org/sbose78/appstudio.git",
-			},
-			wantErr:    false,
-			wantString: "https://bitbucket.org",
-		},
-		{
-			name: "no scheme",
-			args: args{
-				ctx:    context.Background(),
-				gitURL: "github.com/redhat-appstudio/application-service.git",
-			},
-			wantErr:    true, //fully qualified URL is a must
-			wantString: "",
-		},
-		{
-			name: "invalid url",
-			args: args{
-				ctx:    context.Background(),
-				gitURL: "not-even-a-url",
-			},
-			wantErr:    true, //fully qualified URL is a must
-			wantString: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got, err := getGitProvider(tt.args.gitURL); (got != tt.wantString) ||
-				(tt.wantErr == true && err == nil) ||
-				(tt.wantErr == false && err != nil) {
-				t.Errorf("UpdateServiceAccountIfSecretNotLinked() Got Error: = %v, want %v ; Got String:  = %v , want %v", err, tt.wantErr, got, tt.wantString)
-			}
-		})
-	}
-}
-
-func TestUpdateServiceAccountIfSecretNotLinked(t *testing.T) {
-	type args struct {
-		gitSecretName  string
-		serviceAccount *corev1.ServiceAccount
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "present",
-			args: args{
-				gitSecretName: "present",
-				serviceAccount: &corev1.ServiceAccount{
-					Secrets: []corev1.ObjectReference{
-						{
-							Name: "present",
-						},
-					},
-				},
-			},
-			want: false, // since it was present, this implies the SA wasn't updated.
-		},
-		{
-			name: "not present",
-			args: args{
-				gitSecretName: "not-present",
-				serviceAccount: &corev1.ServiceAccount{
-					Secrets: []corev1.ObjectReference{
-						{
-							Name: "something-else",
-						},
-					},
-				},
-			},
-			want: true, // since it wasn't present, this implies the SA was updated.
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := updateServiceAccountIfSecretNotLinked(tt.args.gitSecretName, tt.args.serviceAccount); got != tt.want {
-				t.Errorf("UpdateServiceAccountIfSecretNotLinked() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}

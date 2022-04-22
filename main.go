@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	appstudiov1alpha1 "github.com/redhat-appstudio/application-service/api/v1alpha1"
+	appstudiov1alpha1 "github.com/mmorhun/application-service/api/v1alpha1"
 	"github.com/redhat-appstudio/build-service/controllers"
 	taskrunapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	triggersapi "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
@@ -93,9 +93,9 @@ func main() {
 	if err = (&controllers.ComponentBuildReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("ComponentBuilder"),
+		Log:    ctrl.Log.WithName("controllers").WithName("ComponentInitialBuild"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ComponentBuilder")
+		setupLog.Error(err, "unable to create controller", "controller", "ComponentInitialBuild")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
