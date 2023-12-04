@@ -220,21 +220,6 @@ func (r *ComponentBuildReconciler) TriggerPaCBuild(ctx context.Context, componen
 	log := ctrllog.FromContext(ctx).WithName("TriggerPaCBuild")
 	ctx = ctrllog.IntoContext(ctx, log)
 
-	incomingSecret, reconcileRequired, err := r.ensureIncomingSecret(ctx, component)
-	if err != nil {
-		return false, err
-	}
-
-	repository, err := r.findPaCRepositoryForComponent(ctx, component)
-	if err != nil {
-		return false, err
-	}
-
-	if repository == nil {
-		return false, fmt.Errorf("PaC repository not found for component %s", component.Name)
-	}
-
-	repoUrl := component.Spec.Source.GitSource.URL
 	gitProvider, err := gitops.GetGitProvider(*component)
 	if err != nil {
 		log.Error(err, "error detecting git provider")
@@ -242,11 +227,27 @@ func (r *ComponentBuildReconciler) TriggerPaCBuild(ctx context.Context, componen
 		return false, boerrors.NewBuildOpError(boerrors.EUnknownGitProvider, err)
 	}
 
+	incomingSecret, reconcileRequired, err := r.ensureIncomingSecret(ctx, component)
+	if err != nil {
+		return false, err
+	}
+
+	pacRepository, err := r.findPaCRepositoryForComponent(ctx, component)
+	if err != nil {
+		return false, err
+	}
+
+	if pacRepository == nil {
+		return false, fmt.Errorf("PaC repository not found for component %s", component.Name)
+	}
+
 	pacSecret, err := r.ensurePaCSecret(ctx, component, gitProvider)
 	if err != nil {
 		return false, err
 	}
 
+	repoUrl := component.Spec.Source.GitSource.URL
+	gitRepositoryName := getGitRepositoryName(repoUrl)
 	gitClient, err := gitproviderfactory.CreateGitClient(gitproviderfactory.GitClientConfig{
 		PacSecretData:             pacSecret.Data,
 		GitProvider:               gitProvider,
@@ -266,13 +267,13 @@ func (r *ComponentBuildReconciler) TriggerPaCBuild(ctx context.Context, componen
 		}
 	}
 
-	incomingUpdated := updateIncoming(repository, incomingSecret.Name, pacIncomingSecretKey, targetBranch)
+	incomingUpdated := updateIncoming(pacRepository, incomingSecret.Name, pacIncomingSecretKey, targetBranch)
 	if incomingUpdated {
-		if err := r.Client.Update(ctx, repository); err != nil {
-			log.Error(err, "failed to update PaC repository with incomings", "PaCRepositoryName", repository.Name)
+		if err := r.Client.Update(ctx, pacRepository); err != nil {
+			log.Error(err, "failed to update PaC repository with incomings", "PaCRepositoryName", pacRepository.Name)
 			return false, err
 		}
-		log.Info("Added incomings to the PaC repository", "PaCRepositoryName", repository.Name, l.Action, l.ActionUpdate)
+		log.Info("Added incomings to the PaC repository", "PaCRepositoryName", pacRepository.Name, l.Action, l.ActionUpdate)
 
 		// reconcile to be sure that Repository is updated, as Repository needs to have correct incomings for trigger to work
 		return true, nil
@@ -292,7 +293,7 @@ func (r *ComponentBuildReconciler) TriggerPaCBuild(ctx context.Context, componen
 
 	pipelineRunName := component.Name + pipelineRunOnPushSuffix
 
-	triggerURL := fmt.Sprintf("%s/incoming?secret=%s&repository=%s&branch=%s&pipelinerun=%s", webhookTargetUrl, secretValue, repository.Name, targetBranch, pipelineRunName)
+	triggerURL := fmt.Sprintf("%s/incoming?secret=%s&repository=%s&branch=%s&pipelinerun=%s", webhookTargetUrl, secretValue, gitRepositoryName, targetBranch, pipelineRunName)
 	HttpClient := GetHttpClientFunction()
 
 	resp, err := HttpClient.Post(triggerURL, "application/json", nil)
@@ -306,6 +307,13 @@ func (r *ComponentBuildReconciler) TriggerPaCBuild(ctx context.Context, componen
 
 	log.Info(fmt.Sprintf("PaC build manually triggered push pipeline for component: %s", component.Name))
 	return false, nil
+}
+
+// getGitRepositoryName returns name of the repository by full git repository link
+// e.g. https://github.com/user/repository-name.git -> repository-name
+func getGitRepositoryName(repoUrl string) string {
+	gitSourceUrlParts := strings.Split(strings.TrimSuffix(repoUrl, ".git"), "/")
+	return gitSourceUrlParts[4]
 }
 
 // cleanupPaCRepositoryIncomingsAndSecret is cleaning up incomings in Repository

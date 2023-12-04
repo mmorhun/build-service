@@ -2089,6 +2089,9 @@ var _ = Describe("Component initial build controller", func() {
 
 	Context("Test Pipelines as Code trigger build", func() {
 		var resourcePacTriggerKey = types.NamespacedName{Name: HASCompName + "-pactrigger", Namespace: HASAppNamespace}
+		const componentGitRepositoryUrl = SampleRepoLink + "-pactrigger"
+		var componentGitRepositoryName = strings.Split(SampleRepoLink, "/")[4]
+		const mergeUrl = "merge-url"
 
 		_ = BeforeEach(func() {
 			createNamespace(pipelinesAsCodeNamespace)
@@ -2101,6 +2104,9 @@ var _ = Describe("Component initial build controller", func() {
 			createSecret(pacSecretKey, pacSecretData)
 
 			ResetTestGitProviderClient()
+			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
+				return mergeUrl, nil
+			}
 		})
 
 		_ = AfterEach(func() {
@@ -2115,13 +2121,7 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger PaC build", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2153,13 +2153,13 @@ var _ = Describe("Component initial build controller", func() {
 
 			incomingSecret := corev1.Secret{}
 			Expect(k8sClient.Get(ctx, incomingSecretResourceKey, &incomingSecret)).To(Succeed())
-			secretValue := string(incomingSecret.Data[pacIncomingSecretKey][:])
+			secretValue := string(incomingSecret.Data[pacIncomingSecretKey])
 
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
 				MatchParam("secret", secretValue).
-				MatchParam("repository", component.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "main").
 				MatchParam("pipelinerun", pipelineRunName)
 			req.Reply(202).JSON(map[string]string{})
@@ -2176,14 +2176,8 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger builds for 2 components with different branches in the same repo", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
 			// provision 1st component
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2191,7 +2185,7 @@ var _ = Describe("Component initial build controller", func() {
 
 			// provision 2nd component
 			component2Key := types.NamespacedName{Name: "component2", Namespace: HASAppNamespace}
-			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, SampleRepoLink+"-"+resourcePacTriggerKey.Name, "another")
+			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "another")
 			waitPaCFinalizerOnComponent(component2Key)
 			waitComponentAnnotationGone(component2Key, BuildRequestAnnotationName)
 			expectPacBuildStatus(component2Key, "enabled", 0, "", mergeUrl)
@@ -2218,7 +2212,7 @@ var _ = Describe("Component initial build controller", func() {
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", component1.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "main").
 				MatchParam("pipelinerun", pipelineRunName1)
 			req.Reply(202).JSON(map[string]string{})
@@ -2244,7 +2238,7 @@ var _ = Describe("Component initial build controller", func() {
 			req = gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", component1.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "another").
 				MatchParam("pipelinerun", pipelineRunName2)
 			req.Reply(202).JSON(map[string]string{})
@@ -2262,14 +2256,8 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger builds for 2 components with the same branches in the same repo", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
 			// provision 1st component
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2277,7 +2265,7 @@ var _ = Describe("Component initial build controller", func() {
 
 			// provision 2nd component
 			component2Key := types.NamespacedName{Name: "component2", Namespace: HASAppNamespace}
-			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, SampleRepoLink+"-"+resourcePacTriggerKey.Name, "main")
+			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(component2Key)
 			waitComponentAnnotationGone(component2Key, BuildRequestAnnotationName)
 			expectPacBuildStatus(component2Key, "enabled", 0, "", mergeUrl)
@@ -2304,7 +2292,7 @@ var _ = Describe("Component initial build controller", func() {
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", component1.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "main").
 				MatchParam("pipelinerun", pipelineRunName1)
 			req.Reply(202).JSON(map[string]string{})
@@ -2330,7 +2318,7 @@ var _ = Describe("Component initial build controller", func() {
 			req = gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", component1.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "main").
 				MatchParam("pipelinerun", pipelineRunName2)
 			req.Reply(202).JSON(map[string]string{})
@@ -2349,14 +2337,8 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger PaC build, multiple incomings exist, even with wrong secret", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
 			// provision 1st component
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2377,7 +2359,7 @@ var _ = Describe("Component initial build controller", func() {
 
 			// provision 2nd component
 			component2Key := types.NamespacedName{Name: "component2", Namespace: HASAppNamespace}
-			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, SampleRepoLink+"-"+resourcePacTriggerKey.Name, "another")
+			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "another")
 			waitPaCFinalizerOnComponent(component2Key)
 			waitComponentAnnotationGone(component2Key, BuildRequestAnnotationName)
 			expectPacBuildStatus(component2Key, "enabled", 0, "", mergeUrl)
@@ -2403,7 +2385,7 @@ var _ = Describe("Component initial build controller", func() {
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", repository.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "another").
 				MatchParam("pipelinerun", pipelineRunName2)
 			req.Reply(202).JSON(map[string]string{})
@@ -2424,14 +2406,8 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger PaC build, multiple incomings exist, even with wrong secret, branch found but without secret", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
 			// provision 1st component
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2454,7 +2430,7 @@ var _ = Describe("Component initial build controller", func() {
 
 			// provision 2nd component
 			component2Key := types.NamespacedName{Name: "component2", Namespace: HASAppNamespace}
-			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, SampleRepoLink+"-"+resourcePacTriggerKey.Name, "another")
+			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "another")
 			waitPaCFinalizerOnComponent(component2Key)
 			waitComponentAnnotationGone(component2Key, BuildRequestAnnotationName)
 			expectPacBuildStatus(component2Key, "enabled", 0, "", mergeUrl)
@@ -2480,7 +2456,7 @@ var _ = Describe("Component initial build controller", func() {
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", repository.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "another").
 				MatchParam("pipelinerun", pipelineRunName2)
 			req.Reply(202).JSON(map[string]string{})
@@ -2501,14 +2477,8 @@ var _ = Describe("Component initial build controller", func() {
 		})
 
 		It("should successfully trigger PaC build, one incomings exist, but without secret", func() {
-			mergeUrl := "merge-url"
-
-			EnsurePaCMergeRequestFunc = func(repoUrl string, d *gp.MergeRequestData) (string, error) {
-				return mergeUrl, nil
-			}
-
 			// provision 1st component
-			createComponentAndProcessBuildRequest(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue)
+			createComponentWithBuildRequestAndGit(resourcePacTriggerKey, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "main")
 			waitPaCFinalizerOnComponent(resourcePacTriggerKey)
 			waitComponentAnnotationGone(resourcePacTriggerKey, BuildRequestAnnotationName)
 			expectPacBuildStatus(resourcePacTriggerKey, "enabled", 0, "", mergeUrl)
@@ -2525,7 +2495,7 @@ var _ = Describe("Component initial build controller", func() {
 
 			// provision 2nd component
 			component2Key := types.NamespacedName{Name: "component2", Namespace: HASAppNamespace}
-			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, SampleRepoLink+"-"+resourcePacTriggerKey.Name, "another")
+			createComponentWithBuildRequestAndGit(component2Key, BuildRequestConfigurePaCAnnotationValue, componentGitRepositoryUrl, "another")
 			waitPaCFinalizerOnComponent(component2Key)
 			waitComponentAnnotationGone(component2Key, BuildRequestAnnotationName)
 			expectPacBuildStatus(component2Key, "enabled", 0, "", mergeUrl)
@@ -2551,7 +2521,7 @@ var _ = Describe("Component initial build controller", func() {
 			req := gock.New(webhookTargetUrl).
 				BodyString("").
 				Post("/incoming").
-				MatchParam("repository", repository.Name).
+				MatchParam("repository", componentGitRepositoryName).
 				MatchParam("branch", "another").
 				MatchParam("pipelinerun", pipelineRunName2)
 			req.Reply(202).JSON(map[string]string{})

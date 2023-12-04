@@ -1454,3 +1454,30 @@ func TestGetRandomString(t *testing.T) {
 		})
 	}
 }
+
+func TestGetGitRepositoryName(t *testing.T) {
+	tests := []struct {
+		name             string
+		repoUrl          string
+		expectedRepoName string
+	}{
+		{
+			name:             "should get git repository name from https url without .git suffix",
+			repoUrl:          "https://github.com/user/repository-name",
+			expectedRepoName: "repository-name",
+		},
+		{
+			name:             "should get git repository name from https url with .git suffix",
+			repoUrl:          "https://github.com/user/repository-name.git",
+			expectedRepoName: "repository-name",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getGitRepositoryName(tt.repoUrl)
+			if got != tt.expectedRepoName {
+				t.Errorf("Got repository name %s, but expected %s. Full URL: %s", got, tt.expectedRepoName, tt.repoUrl)
+			}
+		})
+	}
+}
